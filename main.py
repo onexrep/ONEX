@@ -1795,13 +1795,15 @@ def link_config_uris(link: dict, uid: str, host: str) -> list[str]:
     if pairs:
         pair_names: set = set()
         pair_uris = []
-        for idx, (target, proto) in enumerate(pairs, 1):
+        for idx, pair_item in enumerate(pairs, 1):
+            target, proto = pair_item[0], pair_item[1]
+            pair_port = pair_item[2] if len(pair_item) > 2 else None
             name = subscription_config_name(link, proto, pair_names, idx)
             pair_uris.append(generate_vless_link(
                 uid, (target or host), remark=name, protocol=proto, front_host=_ip_front_host(host),
                 fingerprint=link.get("fingerprint", DEFAULT_FINGERPRINT),
                 alpn=DEFAULT_ALPN_BY_PROTOCOL.get(proto, link.get("alpn")),
-                port=protocol_public_port(link, proto, link.get("port", DEFAULT_PORT)),
+                port=(pair_port or protocol_public_port(link, proto, link.get("port", DEFAULT_PORT))),
                 link=link,
             ))
         return pair_uris
@@ -4559,10 +4561,18 @@ async def update_link(
         if "ip_proto_pairs" in body:
             pairs_in = []
             for item in (body.get("ip_proto_pairs") or [])[:500]:
-                if isinstance(item, (list, tuple)) and len(item) == 2:
+                if isinstance(item, (list, tuple)) and len(item) in (2, 3):
                     ip_v, pr_v = str(item[0]).strip()[:64], str(item[1])
                     if pr_v in PROTOCOLS:
-                        pairs_in.append([ip_v, pr_v])
+                        entry_p = [ip_v, pr_v]
+                        if len(item) == 3:
+                            try:
+                                pt_v = int(item[2])
+                            except (TypeError, ValueError):
+                                pt_v = 0
+                            if MIN_PORT <= pt_v <= MAX_PORT:
+                                entry_p.append(pt_v)
+                        pairs_in.append(entry_p)
             link["ip_proto_pairs"] = pairs_in
 
         if "bundle_protocols" in body:
@@ -16105,6 +16115,23 @@ html.light .sidebar .nav-label{color:inherit!important}
     <div class="es-panel">
       <h4>ساخت کانفیگ</h4>
       <!--edge-toggles-end-->
+      <style id="onex-edge-proto-ports">
+#esProto{grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding:6px;border-radius:16px;background:rgba(0,0,0,.22);border:1px solid var(--card-b)}
+#esProto button{min-height:60px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font-size:12.5px;font-weight:700;border-radius:14px;border:1px solid transparent}
+#esProto button::before{font:800 10.5px ui-monospace,monospace;letter-spacing:.08em;opacity:.75;direction:ltr}
+#esProto button[data-v="all"]::before{content:"ALL"}
+#esProto button[data-v="trojan"]::before{content:"TRJ"}
+#esProto button[data-v="vless"]::before{content:"VLS"}
+#esProto button[data-v="vmess"]::before{content:"VMS"}
+#esProto button:not(.on):hover{border-color:rgba(139,92,246,.45);color:var(--t1)}
+#esProto button.on{box-shadow:0 10px 24px -12px rgba(139,92,246,.85)}
+.esp-grid{display:flex!important;flex-wrap:nowrap!important;overflow-x:auto!important;gap:8px!important;padding:6px 2px 10px;scrollbar-width:thin;direction:ltr}
+.esp{flex:0 0 auto!important;min-height:46px;padding:0 14px;white-space:nowrap;border-radius:14px;border:1px solid var(--card-b);background:rgba(0,0,0,.22);font:700 13px ui-monospace,monospace;color:var(--t2);transition:.2s}
+.esp:hover{border-color:rgba(139,92,246,.5);color:var(--t1)}
+.esp:has(input:checked){color:#fff;background:linear-gradient(135deg,rgba(56,217,255,.2),rgba(139,92,246,.22));border-color:rgba(56,217,255,.6);box-shadow:0 0 0 1px rgba(56,217,255,.35) inset}
+.esp input{width:16px;height:16px;accent-color:#38d9ff;margin:0}
+@media (max-width:520px){#esProto{grid-template-columns:repeat(2,minmax(0,1fr))}}
+</style>
       <div class="es-lbl">پروتکل</div>
       <div class="es-seg" id="esProto">
         <button type="button" data-v="all" class="on">همه</button>
@@ -16582,8 +16609,8 @@ cloudflare.com"></textarea></div>
       </div>`}).join('');
   }
   async function loadEdgeSub(){
-    const r=await api('/api/cfedge/sub');if(!r)return;
     esSetToggles();
+    const r=await api('/api/cfedge/sub');if(!r)return;
     if(r.settings&&r.settings.count&&!window.__esEditUid){ES.protos=esParseProtos(r.settings.protocol);ES.count=Number(r.settings.count)||10;ES.quota=Number(r.settings.quota)||50;ES.days=Number(r.settings.days)||30;ES.users=Number(r.settings.users)||0;ES.opt=!!r.settings.opt;ES.ech=!!r.settings.ech;ES.echVal=r.settings.echval||ES.echVal;ES.custom=![3,5,8].includes(ES.count);esPaint()}
     window.__esRows=r.links||[];window.__esSubUrl=r.sub_url||'';const op=esQ('esOpenSub');if(op&&r.sub_url)op.href=r.sub_url;window.__esSel=new Set([...(window.__esSel||[])].filter(u=>(r.links||[]).some(x=>x.uid===u)));esFillKpis(r.links||[]);esRender(r.links||[]);esSetSelCount();
   }
@@ -16803,7 +16830,7 @@ html.light #esVault div[dir="rtl"] div{background:rgba(0,0,0,.35) !important}
       const chosen=[];
       for(const id of esPickProtocols(pr.protocols||[])){if(ES_BUNDLE.includes(id)&&ids.includes(id)&&!chosen.includes(id))chosen.push(id)}
       if(!chosen.length)chosen.push(ids[0]);
-      const pairs=Array.from({length:total},(_,i)=>[ips.length?ips[i%ips.length]:'',chosen[i%chosen.length]]);
+      const pairs=Array.from({length:total},(_,i)=>[ips.length?ips[i%ips.length]:'',chosen[i%chosen.length],ES.ports[i%ES.ports.length]]);
       await esSaveSettings();
       btn.textContent='در حال ساخت…';
       const r=await j('/api/links','POST',{label:base,protocol:chosen[0],bundle_protocols:chosen,clean_ips:ips,limit_value:ES.quota,limit_unit:'GB',expires_days:ES.days,cdn_optimizer:!!ES.opt,advanced:{ports:ES.ports},cdn_ech:ES.ech?ES.echVal:'',ip_limit:ES.users});

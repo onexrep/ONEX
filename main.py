@@ -78,6 +78,7 @@ import ipaddress
 import json
 import re
 import logging
+import gzip
 import os
 import secrets
 import socket
@@ -1824,8 +1825,12 @@ def get_link_info(
     link: dict,
     uid: str,
     host: str,
+    ip_map: dict | None = None,
 ):
-    connected_count = len(unique_ips_for_uuid(uid))
+    if ip_map is not None:
+        connected_count = len(ip_map.get(uid, ()))
+    else:
+        connected_count = len(unique_ips_for_uuid(uid))
     is_active = is_link_allowed(link)
     limit_b = int(link.get("limit_bytes", 0) or 0)
     used_b = int(link.get("used_bytes", 0) or 0)
@@ -4335,12 +4340,21 @@ async def list_links(
 
     result = []
 
+    # One pass over live connections instead of one full scan per link.
+    ip_map: dict = {}
+    for _c in list(connections.values()):
+        _u = _c.get("uuid")
+        _ip = _c.get("ip")
+        if _u and _ip:
+            ip_map.setdefault(_u, set()).add(_ip)
+
     for uid, link in snapshot.items():
 
         info = get_link_info(
             link,
             uid,
             host,
+            ip_map,
         )
 
         result.append(
@@ -9325,7 +9339,7 @@ DASHBOARD_HTML = r"""
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>پنل مدیریت</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'"><noscript><link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet"></noscript>
 <style>
 /* ---------- Delete-all configs glass action ---------- */
 .delete-all-configs-glass{
@@ -10658,6 +10672,10 @@ html.light .onex-topbar-brand{background:#fff;border-color:rgba(var(--accent-rgb
   .onex-topbar{display:flex!important;align-items:center;justify-content:center;height:auto!important;min-height:0!important;width:100%;max-width:100%;box-sizing:border-box;padding:10px!important;margin-bottom:10px;overflow:hidden}
   .onex-topbar-brand{display:flex!important;justify-content:center;min-width:0!important;margin:0 auto}
   .top-server,.top-actions,.hexa-swatches,.top-setting-group,.top-chip,.top-avatar,.top-notify,.top-bell{display:none!important}
+  .onex-topbar{position:relative}
+  .top-actions{display:flex!important;position:absolute;top:50%;right:12px;transform:translateY(-50%);gap:0}
+  .top-actions>*:not(.top-notify-wrap){display:none!important}
+  .top-notify-btn{padding:7px 9px}
 }
 </style>
 <main class="main" id="main">
@@ -13876,7 +13894,7 @@ html.light #page-dash .metric strong{-webkit-text-fill-color:color-mix(in srgb, 
 </div>
 <div class="toast" id="toast"></div>
 
-<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
 <script>
 const I18N={
 fa:{sec_panel:'پنل',sec_sys:'سیستم',sec_appearance:'شخصی‌سازی',nav_dash:'داشبورد',nav_configs:'کانفیگ‌ها',nav_groups:'گروه‌ها',nav_create:'ساخت کانفیگ',nav_stats:'آمار',nav_logs:'لاگ فعالیت',nav_settings:'تنظیمات',nav_support:'پشتیبانی',nav_donate:'حمایت مالی',nav_news:'تلگرام',nav_admins:'ادمین‌ها',refresh_news:'بروزرسانی اطلاعیه',admins_sub:'مدیریت کاربران مدیریتی و سطح دسترسی آن‌ها',admin_create:'ساخت اکانت ادمین',admin_user:'نام کاربری',admin_pw:'رمز عبور',admin_pw2:'تکرار رمز',admin_perms:'دسترسی‌ها',admin_btn:'ساخت اکانت',admin_list:'لیست ادمین‌ها',refresh:'بروزرسانی',refresh_stats:'بروزرسانی آمار',refresh_panel:'بروزرسانی پنل',panel_version:'نسخه پنل',current_version:'ورژن فعلی',nav_telegram:'ربات ONEX',tg_sub:'توکن ربات و آیدی عددی ادمین · فعال‌سازی خودکار و وب‌هوک',tg_config:'پیکربندی ربات',tg_token:'توکن ربات (BotFather)',tg_admin:'آیدی عددی ادمین',tg_webhook:'فعال‌سازی Webhook (پیشنهادی روی Railway)',tg_activate:'ذخیره و فعال‌سازی ربات',tg_help:'راهنما',tg_h1:'از @BotFather یک ربات بساز و توکن را کپی کن',tg_h2:'آیدی عددی خودت را از @userinfobot بگیر',tg_h3:'ذخیره کن — وب‌هوک خودکار روی دامنه Railway ست می‌شود',logout:'خروج',loading:'در حال بارگذاری...',m_conns:'اتصالات فعال',m_traffic:'ترافیک کل',m_links:'کانفیگ‌ها',m_uptime:'آپتایم سرور',quick_create:'ساخت کانفیگ',quick_create_desc:'ساخت دستی با محدودیت ترافیک، سرعت و انقضا',configs_sub:'مدیریت لینک‌ها · VLESS و ساب',th_name:'نام',th_proto:'پروتکل',th_status:'وضعیت',th_usage:'مصرف',th_ops:'عملیات',manual_create:'ساخت دستی',label_name:'نام',label_proto:'پروتکل',label_limit:'محدودیت حجم',label_unit:'واحد',label_days:'انقضا (روز)',label_ip:'محدودیت IP',label_speed:'سرعت (Mbps)',btn_create:'ساخت',stats_sub:'ترافیک و اتصالات · فیلتر زمانی',r_day:'روز',r_week:'هفته',r_month:'ماه',r_all:'کل',panel_info:'اطلاعات کل پنل',lang_label:'زبان',change_pw:'تغییر رمز عبور',pw_cur:'رمز فعلی',pw_new:'رمز جدید',pw_cf:'تکرار رمز',btn_save:'ذخیره',github:'گیت‌هاب',telegram:'تلگرام',channel:'کانال پشتیبان',theme:'تم',theme_dark:'تم تیره',theme_light:'تم روشن',created_title:'کانفیگ ساخته شد',copy_vless:'کپی VLESS',copy_sub:'کپی ساب',sub_label:'سابسکریپشن',theme_page_title:'تم پنل ONEX',theme_page_sub:'رنگ‌بندی پنل را انتخاب کنید؛ تغییرات به‌صورت زنده اعمال و در مرورگر ذخیره می‌شوند.',theme_live_preview:'پیش‌نمایش زنده',theme_current:'تم فعلی',theme_presets:'تم‌های آماده',theme_reset:'بازنشانی',theme_custom:'رنگ‌بندی سفارشی',theme_primary:'رنگ اصلی',theme_secondary:'رنگ ثانویه',theme_background:'پس‌زمینه',theme_card:'کارت‌ها',theme_apply:'اعمال رنگ سفارشی',theme_mode:'حالت نمایش',theme_mode_sub:'تاریک، روشن یا هماهنگ با سیستم',theme_dark_mode:'تاریک',theme_light_mode:'روشن',theme_system_mode:'خودکار',theme_saved_note:'انتخاب شما روی همین مرورگر ذخیره می‌شود و بعد از Refresh باقی می‌ماند.',created_title:'کانفیگ ساخته شد'},
@@ -15220,7 +15238,7 @@ function bootProtocolPickers(){ try{ setupProtocolPickers(); }catch(e){ console.
 if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',bootProtocolPickers); else bootProtocolPickers();
 setTimeout(bootProtocolPickers,300);
 setTimeout(bootProtocolPickers,1000);
-setInterval(()=>{if(document.hidden)return;const pg=document.querySelector('.page.on');const id=pg?pg.id:'';if(id==='page-dash'||id==='page-configs'||id==='page-stats')refreshAll()},8000);
+setInterval(()=>{if(document.hidden)return;const pg=document.querySelector('.page.on');const id=pg?pg.id:'';if(id==='page-dash'||id==='page-configs'||id==='page-stats')refreshAll()},20000);
 
 // ============================================================
 // ONEX THEME SYSTEM — persistent presets + custom palette
@@ -15578,7 +15596,7 @@ window.addEventListener('storage',e=>{if(e.key==='onex_theme_v2')loadOnexTheme()
   new MutationObserver(()=>{clearTimeout(H.mo);H.mo=setTimeout(drawChart,60)}).observe(document.documentElement,{attributes:true,attributeFilter:['class','style']});
 
   bindChartHover();applyLang();homeRefresh(false);
-  setInterval(()=>{const pg=$('page-dash');if(pg&&pg.classList.contains('on')&&!document.hidden)homeRefresh(false)},6000);
+  setInterval(()=>{const pg=$('page-dash');if(pg&&pg.classList.contains('on')&&!document.hidden)homeRefresh(false)},20000);
 })();
 
 </script>
@@ -16872,11 +16890,20 @@ html.light #esVault div[dir="rtl"] div{background:rgba(0,0,0,.35) !important}
 })();
 </script>
 
+<style id="onex-mobile-perf">
+@media (max-width:640px){
+*,*::before,*::after{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
+.sb-logo-icon,.sb-logo-icon:after,#page-logs .logs-live-badge i,.mob-brand-mark,.onex-control-dock:before,.onex-3d-control:after,.onex-3d-control .control-icon,.top-server,.telegram-card,.sidebar .sb-toggle:before,.nav-item.on .nav-ico,.nav-item.on .nav-ico-dash,.nav-item.on .nav-ico-telegram,.nav-item.on .nav-ico-settings,.sb-foot a.danger .logout-ico,.sb-foot button.danger .logout-ico,.onex-mark,.onex-mark:after,.onex-core,.onex-n,.ring-a,.ring-b,.onex-glint,.stats-spark{animation:none!important}
+}
+</style>
 </body>
 </html>
 """
 
 
+
+
+_DASH_RENDERED: dict = {}
 
 
 @app.get(
@@ -16898,16 +16925,21 @@ async def dashboard(
 
     await ensure_default_categories()
 
-    dashboard_html = DASHBOARD_HTML.replace("__ONEX_VERSION__", str(APP_VERSION))
-
-    return HTMLResponse(
-        dashboard_html,
-        headers={
-            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-            "Pragma": "no-cache",
-            "Expires": "0",
-        },
-    )
+    # Render the ~800KB dashboard once and keep it in memory (plus a gzip copy),
+    # instead of re-running the replace and sending the raw page on every load.
+    if not _DASH_RENDERED:
+        _html = DASHBOARD_HTML.replace("__ONEX_VERSION__", str(APP_VERSION)).encode("utf-8")
+        _DASH_RENDERED["raw"] = _html
+        _DASH_RENDERED["gz"] = gzip.compress(_html, compresslevel=6)
+    _no_cache_headers = {
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "Expires": "0",
+        "Vary": "Accept-Encoding",
+    }
+    if "gzip" in (request.headers.get("accept-encoding") or "").lower():
+        return HTMLResponse(_DASH_RENDERED["gz"], headers={**_no_cache_headers, "Content-Encoding": "gzip"})
+    return HTMLResponse(_DASH_RENDERED["raw"], headers=_no_cache_headers)
 
 
 # ============================================================

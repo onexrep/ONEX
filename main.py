@@ -4565,6 +4565,17 @@ async def update_link(
                         pairs_in.append([ip_v, pr_v])
             link["ip_proto_pairs"] = pairs_in
 
+        if "edge_ports" in body:
+            _ports_in = []
+            for _pv in (body.get("edge_ports") or [])[:20]:
+                try:
+                    _pi = int(_pv)
+                except Exception:
+                    continue
+                if _pi in (443, 2053, 2083, 2087, 2096, 8443, 80, 8080, 8880, 2052, 2082, 2086, 2095) and _pi not in _ports_in:
+                    _ports_in.append(_pi)
+            link["edge_ports"] = _ports_in or [443]
+
         if "bundle_protocols" in body:
             raw_bundle = body.get("bundle_protocols") or []
             if not isinstance(raw_bundle, list):
@@ -5120,7 +5131,7 @@ def _edge_group_uris(entries, host):
         except Exception:
             base = [vless_link_for_link(link, uid, host)]
         if link.get("ip_proto_pairs"):
-            edge = _cf.edge_variants_own(base)
+            edge = _cf.edge_variants_own(base, link.get("ip_proto_pairs"), link.get("edge_ports"))
         else:
             edge = _cf.edge_variants(base, list(link.get("clean_ips") or []) or None)
         out.extend(edge or base)
@@ -5232,7 +5243,7 @@ async def subscription_single(
     try:
         from onex.integrations.cf_edge import is_edge_only, edge_only_uris as _edge_only, edge_variants_own as _edge_own
         if is_edge_only(uuid, link.get("uuid")):
-            _edge_lines = _edge_own(_uris) if link.get("ip_proto_pairs") else _edge_only(_uris)
+            _edge_lines = _edge_own(_uris, link.get("ip_proto_pairs"), link.get("edge_ports")) if link.get("ip_proto_pairs") else _edge_only(_uris, link.get("edge_ports"))
             lines.extend(_edge_lines or _uris)
         else:
             lines.extend(_uris)
@@ -16125,7 +16136,8 @@ html.light .sidebar .nav-label{color:inherit!important}
       <div class="es-lbl">تعداد کاربر هر کانفیگ (۰ = بی‌نهایت)</div><div class="es-num"><button type="button" data-field="users" data-step="-1">−</button><input id="esUsers" inputmode="numeric" value="0"><button type="button" data-field="users" data-step="1">+</button></div>
       <div class="es-lbl">مدت (روز، ۰ = بی‌نهایت)</div>
       <div class="es-num"><button type="button" data-field="days" data-step="-1">−</button><input id="esDays" inputmode="numeric" value="0"><button type="button" data-field="days" data-step="1">+</button></div>
-      <div style="display:grid;gap:10px;margin:6px 0 14px"><div class="esc-row"><div class="esc-ico">⚡</div><div class="esc-txt"><b>بهینه‌ساز (cs + fm)</b><small>روی VLESS و Trojan اعمال میشه</small></div><button type="button" id="esOptBtn" class="esw off" aria-label="بهینه‌ساز" onclick="esToggleCdn('opt')"><i></i></button></div><div class="esc-row"><div class="esc-ico">🛡</div><div class="esc-txt"><b>ECH کلودفلر</b><small>فقط بخش ECH کلودفلر</small></div><button type="button" id="esEchBtn" class="esw off" aria-label="ECH" onclick="esToggleCdn('ech')"><i></i></button></div><div class="esc-bar" id="esEchBar" hidden><div style="font-size:12px;opacity:.8">مقدار ECH (پیش‌فرض کلودفلر)</div><input id="esEchVal" dir="ltr" value="cloudflare-ech.com+udp://1.1.1.1" autocomplete="off"><button type="button" onclick="esApplyEch()">اعمال روی کانفیگ‌های Edge</button></div><div class="esc-bar" id="esEchBuilder" hidden style="margin-top:8px;display:grid;gap:10px"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b style="font-size:13px">ECH Builder</b><span style="font-size:11px;opacity:.7">ترکیب دامنه و آی‌پی DNS</span></div><div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px"><div style="min-width:0"><div class="es-lbl">دامنه‌های ECH</div><textarea id="echDomains" dir="ltr" rows="5" style="width:100%;border-radius:12px;border:1px solid var(--card-b);background:rgba(0,0,0,.22);color:var(--t1);padding:8px 10px;font:inherit;box-sizing:border-box"></textarea><button type="button" class="esb" onclick="echLoad('dom')" style="margin-top:6px">بارگذاری از مخزن</button></div><div style="min-width:0"><div class="es-lbl">آی‌پی‌های DNS</div><textarea id="echDns" dir="ltr" rows="5" style="width:100%;border-radius:12px;border:1px solid var(--card-b);background:rgba(0,0,0,.22);color:var(--t1);padding:8px 10px;font:inherit;box-sizing:border-box"></textarea><button type="button" class="esb" onclick="echLoad('dns')" style="margin-top:6px">بارگذاری از مخزن</button></div></div><div id="echProtos" style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="esb" data-ep="udp" onclick="echToggleP('udp')" style="border-radius:999px;padding:6px 16px;font-weight:700;border:0;background:linear-gradient(90deg,#8b5cf6,#ec4899);color:#fff">UDP</button><button type="button" class="esb" data-ep="doh" onclick="echToggleP('doh')" style="border-radius:999px;padding:6px 16px;font-weight:700;border:1px solid rgba(255,255,255,.15);background:transparent;color:inherit">DOH</button><button type="button" class="esb" data-ep="tcp" onclick="echToggleP('tcp')" style="border-radius:999px;padding:6px 16px;font-weight:700;border:1px solid rgba(255,255,255,.15);background:transparent;color:inherit">TCP</button></div><button type="button" class="es-build" onclick="echBuild()">ترکیب و ساخت ECH</button><div class="es-lbl" id="echCount"></div><div id="echOut" dir="ltr" style="max-height:176px;overflow-y:auto;border-radius:12px;background:rgba(0,0,0,.25);padding:6px"></div><div style="border-radius:12px;border:1px solid rgba(168,85,247,.35);background:rgba(168,85,247,.06);padding:10px"><div class="es-lbl" style="margin:0 0 4px">مقدار ECH فعال</div><div id="echSel" dir="ltr" style="font-family:monospace;font-size:12px;word-break:break-all">—</div></div></div></div>
+      <div style="display:grid;gap:10px;margin:6px 0 14px"><div class="esc-row"><div class="esc-ico">⚡</div><div class="esc-txt"><b>بهینه‌ساز (cs + fm)</b><small>روی VLESS و Trojan اعمال میشه</small></div><button type="button" id="esOptBtn" class="esw off" aria-label="بهینه‌ساز" onclick="esToggleCdn('opt')"><i></i></button></div><div class="esc-row"><div class="esc-ico">🛡</div><div class="esc-txt"><b>ECH کلودفلر</b><small>فقط بخش ECH کلودفلر</small></div><button type="button" id="esEchBtn" class="esw off" aria-label="ECH" onclick="esToggleCdn('ech')"><i></i></button></div><div class="esc-bar" id="esEchBar" hidden><div style="font-size:12px;opacity:.8">مقدار ECH (پیش‌فرض کلودفلر)</div><input id="esEchVal" dir="ltr" value="cloudflare-ech.com+udp://1.1.1.1" autocomplete="off"><button type="button" onclick="esApplyEch()">اعمال روی کانفیگ‌های Edge</button></div><div class="esc-bar esc-builder" id="esEchBuilder" hidden style="margin-top:8px;display:grid;gap:10px"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b style="font-size:13px">ECH Builder</b><span style="font-size:11px;opacity:.7">ترکیب دامنه و آی‌پی DNS</span></div><div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px"><div style="min-width:0"><div class="es-lbl">دامنه‌های ECH</div><textarea id="echDomains" dir="ltr" rows="5" style="width:100%;border-radius:12px;border:1px solid var(--card-b);background:rgba(0,0,0,.22);color:var(--t1);padding:8px 10px;font:inherit;box-sizing:border-box"></textarea><button type="button" class="esb" onclick="echLoad('dom')" style="margin-top:6px">بارگذاری از مخزن</button></div><div style="min-width:0"><div class="es-lbl">آی‌پی‌های DNS</div><textarea id="echDns" dir="ltr" rows="5" style="width:100%;border-radius:12px;border:1px solid var(--card-b);background:rgba(0,0,0,.22);color:var(--t1);padding:8px 10px;font:inherit;box-sizing:border-box"></textarea><button type="button" class="esb" onclick="echLoad('dns')" style="margin-top:6px">بارگذاری از مخزن</button></div></div><div id="echProtos" style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="esb" data-ep="udp" onclick="echToggleP('udp')" style="border-radius:999px;padding:6px 16px;font-weight:700;border:0;background:linear-gradient(90deg,#8b5cf6,#ec4899);color:#fff">UDP</button><button type="button" class="esb" data-ep="doh" onclick="echToggleP('doh')" style="border-radius:999px;padding:6px 16px;font-weight:700;border:1px solid rgba(255,255,255,.15);background:transparent;color:inherit">DOH</button><button type="button" class="esb" data-ep="tcp" onclick="echToggleP('tcp')" style="border-radius:999px;padding:6px 16px;font-weight:700;border:1px solid rgba(255,255,255,.15);background:transparent;color:inherit">TCP</button></div><button type="button" class="es-build" onclick="echBuild()">ترکیب و ساخت ECH</button><div class="es-lbl" id="echCount"></div><div id="echOut" dir="ltr" style="max-height:176px;overflow-y:auto;border-radius:12px;background:rgba(0,0,0,.25);padding:6px"></div><div style="border-radius:12px;border:1px solid rgba(168,85,247,.35);background:rgba(168,85,247,.06);padding:10px"><div class="es-lbl" style="margin:0 0 4px">مقدار ECH فعال</div><div id="echSel" dir="ltr" style="font-family:monospace;font-size:12px;word-break:break-all">—</div></div></div></div>
+      <div id="espWrap" class="esp-wrap"><div class="esp-head"><b>پورت‌های کلودفلر</b><small>انتخاب پورت برای ساب‌ها</small></div><div class="esp-tabs"><button type="button" class="esp-tab" data-tab="http" onclick="espTab('http')">HTTP</button><button type="button" class="esp-tab on" data-tab="https" onclick="espTab('https')">HTTPS</button></div><div class="esp-grid" id="espGrid"></div><div class="esp-count" id="espCount"></div></div>
       <button type="button" class="es-build" id="esBuild">ساخت کانفیگ‌ها</button>
       <button type="button" class="esb" id="esCancelEdit" hidden style="width:100%;justify-content:center;margin-top:8px">انصراف از ویرایش</button>
     </div>
@@ -16541,7 +16553,7 @@ cloudflare.com"></textarea></div>
   function esDaysLeft(v){if(!v)return '∞';const d=new Date(v);if(isNaN(d))return '—';const ms=d-Date.now();if(ms<=0)return 'منقضی';const days=Math.floor(ms/86400000);const h=Math.floor((ms%86400000)/3600000);return days?`${days.toLocaleString('fa-IR')} روز`:`${h.toLocaleString('fa-IR')} ساعت`}
   async function esEnsureLink(uid){window.__linksMap=window.__linksMap||{};if(window.__linksMap[uid])return;const links=await esListUids();links.forEach(l=>window.__linksMap[String(l.uuid||l.id||'')]=l)}
   function esRender(rows){
-    esInjectCss();
+    esInjectCss();espRender();
     const box=esQ('esLanes');
     if(!rows.length){box.innerHTML='<div class="es-empty">هنوز کانفیگی ساخته نشده. تنظیمات رو انتخاب کن و «ساخت کانفیگ‌ها» رو بزن.</div>';return}
     box.innerHTML=rows.map(r=>{
@@ -16630,6 +16642,19 @@ cloudflare.com"></textarea></div>
   .esc-txt b{font-size:15px;font-weight:800}
   .esc-txt small{font-size:12px;opacity:.7}
   .esc-bar{padding:14px;border-radius:18px;border:1px dashed rgba(52,245,160,.55);display:grid;gap:10px}
+  .esc-bar[hidden],.esc-builder[hidden]{display:none!important}
+  .esp-wrap{display:grid;gap:12px;padding:14px;border-radius:18px;border:1px solid var(--card-b);background:rgba(255,255,255,.03)}
+  .esp-head{display:flex;flex-direction:column;gap:4px}
+  .esp-head b{font-size:15px;font-weight:800}
+  .esp-head small{font-size:12px;opacity:.7}
+  .esp-tabs{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:4px;border-radius:14px;background:rgba(0,0,0,.25);border:1px solid var(--card-b)}
+  .esp-tab{height:38px;border-radius:11px;border:0;background:transparent;color:var(--t2);font-weight:800;font-size:14px;cursor:pointer}
+  .esp-tab.on{background:linear-gradient(90deg,#22d3ee,#8b5cf6);color:#fff}
+  .esp-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+  .esp-tile{height:52px;border-radius:14px;border:1px solid var(--card-b);background:rgba(0,0,0,.22);color:var(--t1);font-weight:800;font-size:15px;cursor:pointer;direction:ltr;font-family:inherit;transition:transform .15s}
+  .esp-tile:active{transform:scale(.97)}
+  .esp-tile.on{border:1.5px solid transparent;background:linear-gradient(#141b26,#141b26) padding-box,linear-gradient(90deg,#8b5cf6,#ec4899) border-box;color:#fff;box-shadow:0 0 16px -4px rgba(139,92,246,.6)}
+  .esp-count{font-size:12px;opacity:.8;text-align:center}
   .esc-bar input{height:44px;border-radius:12px;border:1px solid var(--card-b);background:rgba(0,0,0,.22);color:var(--t1);padding:0 12px;font:inherit;direction:ltr;box-sizing:border-box;width:100%}
   .esc-bar button{height:44px;border-radius:12px;border:0;background:linear-gradient(135deg,#34f5a0,#22c1ee);color:#04111a;font-weight:800;font-size:14px;cursor:pointer}
   .esc-lane{display:block!important;padding:16px!important}
@@ -16655,7 +16680,13 @@ cloudflare.com"></textarea></div>
   .esc-actions button:active,.esc-bar button:active{transform:translateY(1px) scale(.98)}
   @media (max-width:640px){.esc-lane{padding:12px!important}.esc-row{padding:12px}.esc-ico{width:40px;height:40px;font-size:19px}.esw{width:68px;height:34px}.esw i{width:26px;height:26px;top:4px}.esw.off i{left:38px}.esc-name b{font-size:14px}.esc-stats span{font-size:11px}.esc-actions button{flex:1 1 calc(50% - 6px);text-align:center;font-size:12px}}
   `;document.head.appendChild(st)}
-  function esSetToggles(){esInjectCss();[['esOptBtn',ES.opt],['esEchBtn',ES.ech]].forEach(([id,on])=>{const b=esQ(id);if(!b)return;b.classList.toggle('on',!!on);b.classList.toggle('off',!on);b.setAttribute('aria-pressed',on?'true':'false')});const bar=esQ('esEchBar');if(bar)bar.hidden=!ES.ech;const eb=esQ('esEchBuilder');if(eb)eb.hidden=!ES.ech;const inp=esQ('esEchVal');if(inp&&document.activeElement!==inp)inp.value=ES.echVal}
+  const ESP_HTTPS=[443,2053,2083,2087,2096,8443],ESP_HTTP=[80,8080,8880,2052,2082,2086,2095];
+  ES.ports=(()=>{try{const v=JSON.parse(localStorage.getItem('esPorts')||'null');if(Array.isArray(v)&&v.length)return v.map(Number).filter(x=>ESP_HTTPS.includes(x)||ESP_HTTP.includes(x))}catch(e){}return [443]})();
+  ES.portTab='https';
+  function espRender(){const g=esQ('espGrid');if(!g)return;const list=ES.portTab==='http'?ESP_HTTP:ESP_HTTPS;g.innerHTML=list.map(p=>`<button type="button" class="esp-tile${ES.ports.includes(p)?' on':''}" onclick="espTogglePort(${p})">${p}</button>`).join('');document.querySelectorAll('#espWrap .esp-tab').forEach(b=>b.classList.toggle('on',b.dataset.tab===ES.portTab));const c=esQ('espCount');if(c)c.textContent=`${ES.ports.length.toLocaleString('fa-IR')} پورت انتخاب شده`}
+  window.espTab=function(t){ES.portTab=t;espRender()};
+  window.espTogglePort=function(p){let next=ES.ports.includes(p)?ES.ports.filter(x=>x!==p):[...ES.ports,p];if(!next.length){toast('حداقل یک پورت لازمه');return}ES.ports=next;try{localStorage.setItem('esPorts',JSON.stringify(ES.ports))}catch(e){}espRender()};
+  function esSetToggles(){esInjectCss();espRender();[['esOptBtn',ES.opt],['esEchBtn',ES.ech]].forEach(([id,on])=>{const b=esQ(id);if(!b)return;b.classList.toggle('on',!!on);b.classList.toggle('off',!on);b.setAttribute('aria-pressed',on?'true':'false')});const bar=esQ('esEchBar');if(bar)bar.hidden=!ES.ech;const eb=esQ('esEchBuilder');if(eb)eb.hidden=!ES.ech;const inp=esQ('esEchVal');if(inp&&document.activeElement!==inp)inp.value=ES.echVal}
   async function esPushCdn(kind,val){const key=kind==='opt'?'cdn_optimizer':'cdn_ech';const rows=window.__esRows||[];let n=0;for(const x of rows){const res=await fetch(`/api/links/${encodeURIComponent(x.uid)}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({[key]:val})});if(res.ok)n++}await esSaveSettings();toast(rows.length?`${n.toLocaleString('fa-IR')} کانفیگ به‌روز شد`:'روی کانفیگ‌های بعدی اعمال میشه');loadEdgeSub()}
   window.esToggleCdn=async function(kind){
     if(kind==='opt'){ES.opt=!ES.opt;esSetToggles();return esPushCdn('opt',ES.opt)}
@@ -16791,7 +16822,7 @@ html.light #esVault div[dir="rtl"] div{background:rgba(0,0,0,.35) !important}
       btn.textContent='در حال ساخت…';
       const r=await j('/api/links','POST',{label:base,protocol:chosen[0],bundle_protocols:chosen,clean_ips:ips,limit_value:ES.quota,limit_unit:'GB',expires_days:ES.days,cdn_optimizer:!!ES.opt,cdn_ech:ES.ech?ES.echVal:'',ip_limit:ES.users});
       if(!r||!r.uuid){toast('ساخت ناموفق بود');return}
-      await j('/api/links/'+encodeURIComponent(r.uuid),'PATCH',{ip_proto_pairs:pairs});
+      await j('/api/links/'+encodeURIComponent(r.uuid),'PATCH',{ip_proto_pairs:pairs,edge_ports:ES.ports});
       await j('/api/cfedge/sub/mark','POST',{uids:[r.uuid]});
       toast(`ساب ${base} با ${total.toLocaleString('fa-IR')} کانفیگ ساخته شد`);
     }finally{ES.building=false;btn.textContent=old;loadEdgeSub()}
@@ -16820,6 +16851,7 @@ html.light #esVault div[dir="rtl"] div{background:rgba(0,0,0,.35) !important}
     prevGo(name);
     if(name==='sell')loadSell();
     if(name==='edge'){loadEdge();loadEdgeSaved();loadEdgeSub();loadSniSaved();}
+    if(name==='edge-config'){loadEdgeSub();}
   };
 })();
 </script>
